@@ -1,6 +1,6 @@
 import { parseMarkdownCard } from "@/src/domain/card-parser";
 import type { KanbanBoard, KanbanRepository, MoveCardInput } from "@/src/domain/kanban";
-import { createCardId, formatColumnName, isUserStoryFileName } from "@/src/domain/kanban-files";
+import { compareColumnFolderNames, createCardId, formatColumnName, isUserStoryFileName } from "@/src/domain/kanban-files";
 
 const DB_NAME = "kamban";
 const STORE_NAME = "handles";
@@ -59,7 +59,7 @@ export class BrowserKanbanRepository implements KanbanRepository {
 
     const columns = await Promise.all(
       folderEntries
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => compareColumnFolderNames(a.name, b.name))
         .map(async (folder) => {
           const files: BrowserFileHandle[] = [];
 

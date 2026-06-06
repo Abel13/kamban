@@ -27,6 +27,12 @@ export function parseMarkdownCard(input: ParseMarkdownCardInput): KanbanCard {
     usNumber,
     priority: normalizePriority(readField(content, "Prioridade")),
     complexity: normalizeComplexity(readField(content, "Complexidade")),
+    dependencies: {
+      blocking: parseDependencies(readField(content, "Dependencias bloqueantes")),
+      nonBlocking: parseDependencies(
+        readField(content, "Dependencias nao bloqueantes") ?? readField(content, "Dependencias não bloqueantes")
+      )
+    },
     source: parseSources(readField(content, "Fonte")),
     createdAt: input.createdAt.toISOString(),
     body: content,
@@ -60,10 +66,18 @@ function normalizePriority(value?: string): Priority {
 
 function normalizeComplexity(value?: string): Complexity {
   const normalized = value?.toUpperCase();
-  if (normalized === "XS" || normalized === "S" || normalized === "M" || normalized === "L" || normalized === "XL") {
+  if (normalized === "P" || normalized === "M" || normalized === "G" || normalized === "GG") {
     return normalized;
   }
   return DEFAULT_COMPLEXITY;
+}
+
+function parseDependencies(value?: string) {
+  if (!value || value.trim().toLowerCase() === "nenhuma") return [];
+  return value
+    .split(",")
+    .map((item) => item.replace(/`/g, "").trim().toUpperCase())
+    .filter(Boolean);
 }
 
 function parseSources(value?: string) {

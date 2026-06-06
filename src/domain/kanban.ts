@@ -1,5 +1,10 @@
 export type Priority = "P0" | "P1" | "P2" | "P3" | "PX";
-export type Complexity = "XS" | "S" | "M" | "L" | "XL" | "N/A";
+export type Complexity = "P" | "M" | "G" | "GG" | "N/A";
+
+export type CardDependencies = {
+  blocking: string[];
+  nonBlocking: string[];
+};
 
 export type KanbanCard = {
   id: string;
@@ -9,6 +14,7 @@ export type KanbanCard = {
   usNumber: string;
   priority: Priority;
   complexity: Complexity;
+  dependencies: CardDependencies;
   source: string[];
   createdAt: string;
   body: string;

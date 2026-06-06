@@ -2,7 +2,13 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { FileKanbanRepository, createCardId, formatColumnName, isUserStoryFileName } from "./file-kanban-repository";
+import {
+  FileKanbanRepository,
+  compareColumnFolderNames,
+  createCardId,
+  formatColumnName,
+  isUserStoryFileName
+} from "./file-kanban-repository";
 
 async function createTempBoard() {
   const root = await mkdtemp(path.join(os.tmpdir(), "kamban-"));
@@ -10,7 +16,7 @@ async function createTempBoard() {
   await mkdir(path.join(root, "02-done"));
   await writeFile(
     path.join(root, "01-backlog", "us-010-testar-repositorio.md"),
-    "# US-010 - Testar repositorio\n\nPrioridade: P2\nComplexidade: S\n\n## Historia\n\nMover arquivos.",
+    "# US-010 - Testar repositorio\n\nPrioridade: P2\nComplexidade: P\nDependencias bloqueantes: nenhuma\nDependencias nao bloqueantes: US-009\n\n## Historia\n\nMover arquivos.",
     "utf8"
   );
   await writeFile(path.join(root, "01-backlog", "notes.md"), "# Notes", "utf8");
@@ -31,7 +37,11 @@ describe("FileKanbanRepository", () => {
     expect(board.columns[0].cards[0]).toMatchObject({
       title: "Testar repositorio",
       priority: "P2",
-      complexity: "S"
+      complexity: "P",
+      dependencies: {
+        blocking: [],
+        nonBlocking: ["US-009"]
+      }
     });
   });
 
@@ -63,5 +73,11 @@ describe("FileKanbanRepository", () => {
 
   it("formats folder names for display", () => {
     expect(formatColumnName("02-em-andamento")).toBe("Em Andamento");
+  });
+
+  it("sorts canonical product kanban folders by workflow order", () => {
+    const folders = ["reviewing", "done", "to-do", "backlog", "doing"];
+
+    expect(folders.sort(compareColumnFolderNames)).toEqual(["backlog", "to-do", "doing", "reviewing", "done"]);
   });
 });

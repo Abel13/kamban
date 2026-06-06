@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { parseMarkdownCard } from "@/src/domain/card-parser";
 import type { KanbanBoard, KanbanRepository, MoveCardInput } from "@/src/domain/kanban";
-import { createCardId, formatColumnName, isUserStoryFileName } from "@/src/domain/kanban-files";
+import { compareColumnFolderNames, createCardId, formatColumnName, isUserStoryFileName } from "@/src/domain/kanban-files";
 
 export class FileKanbanRepository implements KanbanRepository {
   constructor(private readonly rootDir: string) {}
@@ -12,7 +12,7 @@ export class FileKanbanRepository implements KanbanRepository {
     const entries = await readdir(/* turbopackIgnore: true */ this.rootDir, { withFileTypes: true });
     const folders = entries
       .filter((entry) => entry.isDirectory())
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => compareColumnFolderNames(a.name, b.name));
 
     const columns = await Promise.all(
       folders.map(async (folder) => {
@@ -66,4 +66,4 @@ export class FileKanbanRepository implements KanbanRepository {
   }
 }
 
-export { createCardId, formatColumnName, isUserStoryFileName };
+export { compareColumnFolderNames, createCardId, formatColumnName, isUserStoryFileName };

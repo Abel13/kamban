@@ -12,6 +12,7 @@ import {
   Flag,
   FolderOpen,
   Gauge,
+  GitBranch,
   GripVertical,
   Loader2,
   RotateCw,
@@ -216,6 +217,7 @@ function KanbanCard({ card, selected, onSelect }: { card: Card; selected: boolea
             <Badge variant="info">{card.usNumber}</Badge>
             <PriorityBadge priority={card.priority} />
             <ComplexityIcon complexity={card.complexity} />
+            {card.dependencies.blocking.length > 0 && <BlockingDependenciesBadge count={card.dependencies.blocking.length} />}
           </div>
           <h3 className="mt-3 text-sm font-semibold leading-5 text-white">{card.title}</h3>
           <p className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted)]">
@@ -240,6 +242,7 @@ function KanbanCardOverlay({ card }: { card: Card }) {
             <Badge variant="info">{card.usNumber}</Badge>
             <PriorityBadge priority={card.priority} />
             <ComplexityIcon complexity={card.complexity} />
+            {card.dependencies.blocking.length > 0 && <BlockingDependenciesBadge count={card.dependencies.blocking.length} />}
           </div>
           <h3 className="mt-3 text-sm font-semibold leading-5 text-white">{card.title}</h3>
           <p className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted)]">
@@ -411,6 +414,16 @@ function StoryMetaCard({ card, isMoving }: { card: Card; isMoving: boolean }) {
           label="Complexidade"
           value={<ComplexityIcon complexity={card.complexity} />}
         />
+        <MetaSignal
+          icon={<GitBranch className="h-4 w-4" />}
+          label="Dependencias bloqueantes"
+          value={<DependencyList dependencies={card.dependencies.blocking} emptyLabel="nenhuma" />}
+        />
+        <MetaSignal
+          icon={<GitBranch className="h-4 w-4" />}
+          label="Dependencias nao bloqueantes"
+          value={<DependencyList dependencies={card.dependencies.nonBlocking} emptyLabel="nenhuma" />}
+        />
         <MetaSignal icon={<Columns3 className="h-4 w-4" />} label="Status" value={formatStatus(card.columnId)} />
       </div>
       <div className="mt-4 space-y-2 border-t border-slate-800 pt-3 text-xs leading-5 text-slate-500">
@@ -448,6 +461,14 @@ function PriorityBadge({ priority }: { priority: Card["priority"] }) {
   return <Badge variant={variant}>{priority}</Badge>;
 }
 
+function BlockingDependenciesBadge({ count }: { count: number }) {
+  return (
+    <Badge variant="danger" title={`${count} dependencia(s) bloqueante(s)`}>
+      {count} bloqueio{count > 1 ? "s" : ""}
+    </Badge>
+  );
+}
+
 function ComplexityIcon({ complexity }: { complexity: Card["complexity"] }) {
   const filledCount = getComplexityWeight(complexity);
 
@@ -458,7 +479,7 @@ function ComplexityIcon({ complexity }: { complexity: Card["complexity"] }) {
       title={`Complexidade ${complexity}`}
     >
       <span className="sr-only">Complexidade {complexity}</span>
-      {Array.from({ length: 5 }).map((_, index) => (
+      {Array.from({ length: 4 }).map((_, index) => (
         <span
           key={index}
           className={cn(
@@ -474,15 +495,30 @@ function ComplexityIcon({ complexity }: { complexity: Card["complexity"] }) {
 
 function getComplexityWeight(complexity: Card["complexity"]) {
   const weights: Record<Card["complexity"], number> = {
-    XS: 1,
-    S: 2,
-    M: 3,
-    L: 4,
-    XL: 5,
+    P: 1,
+    M: 2,
+    G: 3,
+    GG: 4,
     "N/A": 0
   };
 
   return weights[complexity];
+}
+
+function DependencyList({ dependencies, emptyLabel }: { dependencies: string[]; emptyLabel: string }) {
+  if (dependencies.length === 0) {
+    return <span className="text-slate-400">{emptyLabel}</span>;
+  }
+
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {dependencies.map((dependency) => (
+        <Badge key={dependency} variant="neutral">
+          {dependency}
+        </Badge>
+      ))}
+    </span>
+  );
 }
 
 function formatStatus(columnId: string) {
