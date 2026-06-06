@@ -83,7 +83,7 @@ describe("useKanbanViewModel", () => {
     expect(result.current.selectedCard?.id).toBe("todo:a.md");
   });
 
-  it("syncs local state when the server board changes", () => {
+  it("syncs local state when the board changes", () => {
     const { result, rerender } = renderHook(({ initialBoard }) => useKanbanViewModel(initialBoard), {
       initialProps: { initialBoard: board }
     });
@@ -98,10 +98,9 @@ describe("useKanbanViewModel", () => {
     expect(result.current.selectedCard).toBeNull();
   });
 
-  it("persists a drag move through the API", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", fetchMock);
-    const { result } = renderHook(() => useKanbanViewModel(board));
+  it("persists a drag move through the configured repository", async () => {
+    const moveCard = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useKanbanViewModel(board, { moveCard }));
 
     await act(async () => {
       await result.current.handleDragEnd({
@@ -111,18 +110,15 @@ describe("useKanbanViewModel", () => {
     });
 
     expect(result.current.board.columns[1].cards[0].columnId).toBe("done");
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/cards/move",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ cardId: "todo:a.md", fromColumnId: "todo", toColumnId: "done" })
-      })
-    );
+    expect(moveCard).toHaveBeenCalledWith({ cardId: "todo:a.md", fromColumnId: "todo", toColumnId: "done" });
   });
 
-  it("rolls back when the API rejects the move", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
-    const { result } = renderHook(() => useKanbanViewModel(board));
+  it("rolls back when the repository rejects the move", async () => {
+    const { result } = renderHook(() =>
+      useKanbanViewModel(board, {
+        moveCard: vi.fn().mockRejectedValue(new Error("failed"))
+      })
+    );
 
     await act(async () => {
       await result.current.handleDragEnd({
@@ -135,9 +131,8 @@ describe("useKanbanViewModel", () => {
   });
 
   it("ignores invalid drags", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const { result } = renderHook(() => useKanbanViewModel(board));
+    const moveCard = vi.fn();
+    const { result } = renderHook(() => useKanbanViewModel(board, { moveCard }));
 
     await act(async () => {
       await result.current.handleDragEnd({
@@ -146,6 +141,6 @@ describe("useKanbanViewModel", () => {
       } as Parameters<typeof result.current.handleDragEnd>[0]);
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(moveCard).not.toHaveBeenCalled();
   });
 });

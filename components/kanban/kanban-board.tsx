@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { DndContext, DragOverlay, PointerSensor, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
@@ -22,40 +21,85 @@ import { format } from "date-fns";
 import type { KanbanBoard as Board, KanbanCard as Card, KanbanColumn as Column } from "@/src/domain/kanban";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  BrowserKanbanRepository,
+  isFileSystemAccessSupported,
+  loadStoredBrowserKanbanRepository,
+  pickBrowserKanbanRepository
+} from "@/src/infrastructure/browser-kanban-repository";
 import { cn } from "@/src/lib/utils";
 import { useKanbanViewModel } from "@/src/view-models/kanban-view-model";
 
 type Props = {
   initialBoard: Board;
-  initialRootDir: string;
 };
 
-export function KanbanBoard({ initialBoard, initialRootDir }: Props) {
-  const router = useRouter();
+export function KanbanBoard({ initialBoard }: Props) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const vm = useKanbanViewModel(initialBoard);
-  const [rootDialogOpen, setRootDialogOpen] = useState(false);
+  const [repository, setRepository] = useState<BrowserKanbanRepository | null>(null);
+  const [rootLabel, setRootLabel] = useState("");
   const [rootPickerError, setRootPickerError] = useState("");
   const [pickingRoot, setPickingRoot] = useState(false);
+  const [loadingStoredRoot, setLoadingStoredRoot] = useState(true);
   const [activeCardId, setActiveCardId] = useState("");
+  const vm = useKanbanViewModel(initialBoard, {
+    moveCard: (input) => {
+      if (!repository) throw new Error("Nenhuma pasta selecionada.");
+      return repository.moveCard(input);
+    }
+  });
   const activeCard = vm.board.columns.flatMap((column) => column.cards).find((card) => card.id === activeCardId) ?? null;
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadStoredRoot() {
+      try {
+        const storedRepository = await loadStoredBrowserKanbanRepository();
+        if (!isMounted || !storedRepository) return;
+
+        setRepository(storedRepository);
+        setRootLabel(storedRepository.rootName);
+        vm.replaceBoard(await storedRepository.getBoard());
+      } catch {
+        if (isMounted) {
+          setRootPickerError("Nao foi possivel reabrir a pasta salva. Selecione a pasta novamente.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingStoredRoot(false);
+        }
+      }
+    }
+
+    loadStoredRoot();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   async function pickRootFolder() {
-    setPickingRoot(true);
-    setRootPickerError("");
-
-    const response = await fetch("/api/board/root/pick", { method: "POST" });
-
-    if (!response.ok) {
-      const payload = (await response.json()) as { message?: string };
-      setRootPickerError(payload.message ?? "Nao foi possivel abrir o seletor de pastas.");
-      setRootDialogOpen(true);
-      setPickingRoot(false);
+    if (!isFileSystemAccessSupported()) {
+      setRootPickerError("Este navegador nao permite acesso local a pastas. Use Chrome ou Edge.");
       return;
     }
 
-    setPickingRoot(false);
-    router.refresh();
+    setPickingRoot(true);
+    setRootPickerError("");
+
+    try {
+      const nextRepository = await pickBrowserKanbanRepository();
+      const nextBoard = await nextRepository.getBoard();
+
+      setRepository(nextRepository);
+      setRootLabel(nextRepository.rootName);
+      vm.replaceBoard(nextBoard);
+    } catch (error) {
+      setRootPickerError(error instanceof Error ? error.message : "Nao foi possivel selecionar a pasta.");
+    } finally {
+      setPickingRoot(false);
+    }
   }
 
   return (
@@ -63,7 +107,9 @@ export function KanbanBoard({ initialBoard, initialRootDir }: Props) {
       <div className="shrink-0 flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-medium text-[var(--muted)]">Pasta do kanban</p>
-          <p className="mt-1 truncate text-sm text-slate-200">{initialRootDir}</p>
+          <p className="mt-1 truncate text-sm text-slate-200">
+            {rootLabel || (loadingStoredRoot ? "Procurando pasta salva..." : "Nenhuma pasta selecionada")}
+          </p>
           {rootPickerError && <p className="mt-1 text-xs text-red-200">{rootPickerError}</p>}
         </div>
         <Button className="shrink-0" onClick={pickRootFolder} disabled={pickingRoot}>
@@ -71,6 +117,22 @@ export function KanbanBoard({ initialBoard, initialRootDir }: Props) {
           Selecionar pasta
         </Button>
       </div>
+      {!repository && !loadingStoredRoot && (
+        <section className="grid min-h-0 flex-1 place-items-center rounded-lg border border-dashed border-slate-700 bg-[var(--surface)] p-6 text-center">
+          <div className="max-w-md">
+            <FolderOpen className="mx-auto h-10 w-10 text-slate-500" />
+            <h2 className="mt-4 text-lg font-semibold text-white">Selecione uma pasta local</h2>
+            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+              A pasta raiz deve conter uma subpasta por coluna e arquivos `.md` de user story dentro delas.
+            </p>
+            <Button className="mt-5" onClick={pickRootFolder} disabled={pickingRoot}>
+              {pickingRoot ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+              Selecionar pasta
+            </Button>
+          </div>
+        </section>
+      )}
+      {(repository || loadingStoredRoot) && (
       <DndContext
         sensors={sensors}
         onDragStart={(event) => setActiveCardId(String(event.active.id))}
@@ -89,13 +151,8 @@ export function KanbanBoard({ initialBoard, initialRootDir }: Props) {
           {activeCard ? <KanbanCardOverlay card={activeCard} /> : null}
         </DragOverlay>
       </DndContext>
+      )}
       <CardDetailsPanel card={vm.selectedCard} isMoving={vm.isMoving} onClose={() => vm.selectCard("")} />
-      <RootFolderDialog
-        currentRootDir={initialRootDir}
-        open={rootDialogOpen}
-        onClose={() => setRootDialogOpen(false)}
-        onSaved={() => router.refresh()}
-      />
     </div>
   );
 }
@@ -382,91 +439,6 @@ function MetaSignal({ icon, label, value }: { icon: React.ReactNode; label: stri
         <p className="text-[11px] font-medium uppercase text-slate-500">{label}</p>
         <div className="mt-1 min-w-0 break-words text-sm font-medium text-slate-100">{value}</div>
       </div>
-    </div>
-  );
-}
-
-function RootFolderDialog({
-  currentRootDir,
-  open,
-  onClose,
-  onSaved
-}: {
-  currentRootDir: string;
-  open: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [rootDir, setRootDir] = useState(currentRootDir);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  if (!open) return null;
-
-  async function saveRootDir() {
-    setSaving(true);
-    setError("");
-
-    const response = await fetch("/api/board/root", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rootDir })
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json()) as { message?: string };
-      setError(payload.message ?? "Nao foi possivel selecionar a pasta.");
-      setSaving(false);
-      return;
-    }
-
-    setSaving(false);
-    onClose();
-    onSaved();
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-3 backdrop-blur-sm" role="presentation">
-      <button className="absolute inset-0 cursor-default" aria-label="Fechar selecao de pasta" onClick={onClose} />
-      <section
-        className="relative w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl shadow-black/40"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="root-folder-title"
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] p-4">
-          <div>
-            <h2 id="root-folder-title" className="text-lg font-semibold text-white">
-              Selecionar pasta do kanban
-            </h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">Use a pasta raiz que contem as colunas como subpastas.</p>
-          </div>
-          <Button variant="ghost" aria-label="Fechar selecao de pasta" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="grid gap-3 p-4">
-          <label className="grid gap-2 text-sm text-slate-200">
-            Caminho da pasta
-            <input
-              className="h-10 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-sky-400"
-              value={rootDir}
-              onChange={(event) => setRootDir(event.target.value)}
-              placeholder="/Users/seu-usuario/projeto/docs/kanban"
-            />
-          </label>
-          {error && <p className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={onClose}>
-              Cancelar
-            </Button>
-            <Button onClick={saveRootDir} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-              Salvar
-            </Button>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

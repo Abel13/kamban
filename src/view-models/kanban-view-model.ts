@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DragEndEvent } from "@dnd-kit/core";
-import type { KanbanBoard } from "@/src/domain/kanban";
+import type { KanbanBoard, MoveCardInput } from "@/src/domain/kanban";
 
 export type KanbanViewModel = ReturnType<typeof useKanbanViewModel>;
 
-export function useKanbanViewModel(initialBoard: KanbanBoard) {
+type UseKanbanViewModelOptions = {
+  moveCard?: (input: MoveCardInput) => Promise<void>;
+};
+
+export function useKanbanViewModel(initialBoard: KanbanBoard, options: UseKanbanViewModelOptions = {}) {
   const [board, setBoard] = useState(initialBoard);
   const [selectedCardId, setSelectedCardId] = useState("");
   const [isMoving, setIsMoving] = useState(false);
@@ -30,13 +34,9 @@ export function useKanbanViewModel(initialBoard: KanbanBoard) {
     setBoard(nextBoard);
     setIsMoving(true);
 
-    const response = await fetch("/api/cards/move", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cardId, fromColumnId: fromColumn.id, toColumnId })
-    });
-
-    if (!response.ok) {
+    try {
+      await options.moveCard?.({ cardId, fromColumnId: fromColumn.id, toColumnId });
+    } catch {
       setBoard(board);
     }
 
@@ -48,6 +48,7 @@ export function useKanbanViewModel(initialBoard: KanbanBoard) {
     selectedCard,
     isMoving,
     selectCard: setSelectedCardId,
+    replaceBoard: setBoard,
     handleDragEnd
   };
 }

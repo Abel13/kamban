@@ -2,8 +2,7 @@ import { mkdir, readdir, readFile, rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { parseMarkdownCard } from "@/src/domain/card-parser";
 import type { KanbanBoard, KanbanRepository, MoveCardInput } from "@/src/domain/kanban";
-
-const userStoryFilePattern = /^us-\d{3}-.+\.md$/i;
+import { createCardId, formatColumnName, isUserStoryFileName } from "@/src/domain/kanban-files";
 
 export class FileKanbanRepository implements KanbanRepository {
   constructor(private readonly rootDir: string) {}
@@ -67,18 +66,4 @@ export class FileKanbanRepository implements KanbanRepository {
   }
 }
 
-export function createCardId(columnId: string, fileName: string) {
-  void columnId;
-  return fileName;
-}
-
-export function isUserStoryFileName(fileName: string) {
-  return userStoryFilePattern.test(fileName);
-}
-
-export function formatColumnName(folderName: string) {
-  return folderName
-    .replace(/^\d+[-_]/, "")
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
+export { createCardId, formatColumnName, isUserStoryFileName };
