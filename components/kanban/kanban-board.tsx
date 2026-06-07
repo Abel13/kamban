@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DndContext, DragOverlay, PointerSensor, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
@@ -15,6 +15,7 @@ import {
   GitBranch,
   GripVertical,
   Loader2,
+  RefreshCw,
   RotateCw,
   X
 } from "lucide-react";
@@ -40,9 +41,12 @@ export function KanbanBoard({ initialBoard }: Props) {
   const [repository, setRepository] = useState<BrowserKanbanRepository | null>(null);
   const [rootLabel, setRootLabel] = useState("");
   const [rootPickerError, setRootPickerError] = useState("");
+  const [syncError, setSyncError] = useState("");
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [pickingRoot, setPickingRoot] = useState(false);
   const [loadingStoredRoot, setLoadingStoredRoot] = useState(true);
   const [activeCardId, setActiveCardId] = useState("");
+  const latestBoardSnapshot = useRef(createBoardSnapshot(initialBoard));
   const vm = useKanbanViewModel(initialBoard, {
     moveCard: (input) => {
       if (!repository) throw new Error("Nenhuma pasta selecionada.");
@@ -50,6 +54,20 @@ export function KanbanBoard({ initialBoard }: Props) {
     }
   });
   const activeCard = vm.board.columns.flatMap((column) => column.cards).find((card) => card.id === activeCardId) ?? null;
+  const replaceBoardFromRepository = useCallback(
+    (nextBoard: Board) => {
+      const nextSnapshot = createBoardSnapshot(nextBoard);
+
+      if (nextSnapshot !== latestBoardSnapshot.current) {
+        vm.replaceBoard(nextBoard);
+        latestBoardSnapshot.current = nextSnapshot;
+      }
+
+      setLastSyncedAt(new Date());
+      setSyncError("");
+    },
+    [vm.replaceBoard]
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -61,7 +79,7 @@ export function KanbanBoard({ initialBoard }: Props) {
 
         setRepository(storedRepository);
         setRootLabel(storedRepository.rootName);
-        vm.replaceBoard(await storedRepository.getBoard());
+        replaceBoardFromRepository(await storedRepository.getBoard());
       } catch {
         if (isMounted) {
           setRootPickerError("Nao foi possivel reabrir a pasta salva. Selecione a pasta novamente.");
@@ -78,7 +96,47 @@ export function KanbanBoard({ initialBoard }: Props) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [replaceBoardFromRepository]);
+
+  useEffect(() => {
+    if (!repository) return;
+
+    const activeRepository = repository;
+    let isActive = true;
+    let syncTimeout: ReturnType<typeof setTimeout>;
+
+    async function syncBoard() {
+      if (vm.isMoving) {
+        scheduleNextSync();
+        return;
+      }
+
+      try {
+        const nextBoard = await activeRepository.getBoard();
+        if (!isActive) return;
+        replaceBoardFromRepository(nextBoard);
+      } catch {
+        if (isActive) {
+          setSyncError("Nao foi possivel sincronizar as mudancas da pasta.");
+        }
+      } finally {
+        if (isActive) {
+          scheduleNextSync();
+        }
+      }
+    }
+
+    function scheduleNextSync() {
+      syncTimeout = setTimeout(syncBoard, 1500);
+    }
+
+    scheduleNextSync();
+
+    return () => {
+      isActive = false;
+      clearTimeout(syncTimeout);
+    };
+  }, [repository, replaceBoardFromRepository, vm.isMoving]);
 
   async function pickRootFolder() {
     if (!isFileSystemAccessSupported()) {
@@ -95,7 +153,7 @@ export function KanbanBoard({ initialBoard }: Props) {
 
       setRepository(nextRepository);
       setRootLabel(nextRepository.rootName);
-      vm.replaceBoard(nextBoard);
+      replaceBoardFromRepository(nextBoard);
     } catch (error) {
       setRootPickerError(error instanceof Error ? error.message : "Nao foi possivel selecionar a pasta.");
     } finally {
@@ -112,11 +170,23 @@ export function KanbanBoard({ initialBoard }: Props) {
             {rootLabel || (loadingStoredRoot ? "Procurando pasta salva..." : "Nenhuma pasta selecionada")}
           </p>
           {rootPickerError && <p className="mt-1 text-xs text-red-200">{rootPickerError}</p>}
+          {syncError && <p className="mt-1 text-xs text-red-200">{syncError}</p>}
         </div>
-        <Button className="shrink-0" onClick={pickRootFolder} disabled={pickingRoot}>
-          {pickingRoot ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-          Selecionar pasta
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {repository && (
+            <span
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-700 bg-slate-950/35 px-3 text-xs font-medium text-slate-300"
+              title={lastSyncedAt ? `Ultima sincronizacao: ${format(lastSyncedAt, "dd/MM/yyyy HH:mm:ss")}` : "Aguardando sincronizacao"}
+            >
+              <RefreshCw className="h-3.5 w-3.5 text-sky-300" />
+              Ao vivo
+            </span>
+          )}
+          <Button onClick={pickRootFolder} disabled={pickingRoot}>
+            {pickingRoot ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+            Selecionar pasta
+          </Button>
+        </div>
       </div>
       {!repository && !loadingStoredRoot && (
         <section className="grid min-h-0 flex-1 place-items-center rounded-lg border border-dashed border-slate-700 bg-[var(--surface)] p-6 text-center">
@@ -155,6 +225,25 @@ export function KanbanBoard({ initialBoard }: Props) {
       )}
       <CardDetailsPanel card={vm.selectedCard} isMoving={vm.isMoving} onClose={() => vm.selectCard("")} />
     </div>
+  );
+}
+
+function createBoardSnapshot(board: Board) {
+  return JSON.stringify(
+    board.columns.map((column) => ({
+      id: column.id,
+      cards: column.cards.map((card) => ({
+        id: card.id,
+        fileName: card.fileName,
+        title: card.title,
+        priority: card.priority,
+        complexity: card.complexity,
+        dependencies: card.dependencies,
+        source: card.source,
+        body: card.body,
+        sections: card.sections
+      }))
+    }))
   );
 }
 
